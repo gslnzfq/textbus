@@ -23,7 +23,11 @@ class BlockComponentLoader implements ComponentLoader {
   }
 
   read(el: HTMLElement): ViewData {
-    const component = new BlockComponent(el.tagName.toLocaleLowerCase());
+    const attrs:any = {}
+    el.getAttributeNames().forEach(key => {
+      attrs[key] = el.getAttribute(key) as string
+    })
+    const component = new BlockComponent(el.tagName.toLocaleLowerCase(), attrs);
     return {
       component: component,
       slotsMap: [{
@@ -123,8 +127,11 @@ export class BlockComponent extends DivisionAbstractComponent {
     return next;
   }
 
-  constructor(tagName: string) {
+  attrs: any = {}
+
+  constructor(tagName: string, attrs = {}) {
     super(tagName);
+    this.attrs = attrs;
   }
 
   clone() {
@@ -134,7 +141,7 @@ export class BlockComponent extends DivisionAbstractComponent {
   }
 
   slotRender(isOutputMode: boolean, slotRendererFn: SingleSlotRenderFn): VElement {
-    return slotRendererFn(this.slot, new VElement(this.tagName));
+    return slotRendererFn(this.slot, new VElement(this.tagName, {attrs: this.attrs}));
   }
 
   render(isOutputMode: boolean, slotRendererFn: SlotRenderFn) {
