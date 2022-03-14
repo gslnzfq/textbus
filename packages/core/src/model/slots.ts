@@ -10,7 +10,7 @@ export interface SlotChangeData<T extends Slot> {
 }
 
 /**
- * TextBus 管理组件内部插槽增删改查的类
+ * Textbus 管理组件内部插槽增删改查的类
  */
 export class Slots {
   readonly onChange: Observable<Operation>
@@ -274,7 +274,7 @@ export class Slots {
   }
 
   /**
-   * 从下标位置向前删除指定数量的子插槽
+   * 从下标位置向后删除指定数量的子插槽
    * @param count
    */
   delete(count: number) {

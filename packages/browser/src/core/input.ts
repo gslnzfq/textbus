@@ -10,7 +10,7 @@ export const isWindows = /win(dows|32|64)/i.test(navigator.userAgent)
 export const isMac = /mac os/i.test(navigator.userAgent)
 
 /**
- * TextBus PC 端输入实现
+ * Textbus PC 端输入实现
  */
 @Injectable()
 export class Input {
@@ -50,15 +50,21 @@ export class Input {
 
     this.container.appendChild(textarea)
     selectionBridge.caret.elementRef.append(this.container)
+    let isFocus = false
     this.subscriptions.push(
       selectionBridge.onSelectionChange.subscribe((range) => {
         if (range) {
-          this.textarea.focus()
+          if (!isFocus) {
+            this.textarea.focus()
+          }
+          isFocus = true
         } else {
           this.textarea.blur()
+          isFocus = false
         }
       }),
       fromEvent(textarea, 'blur').subscribe(() => {
+        isFocus = false
         selectionBridge.caret.hide()
       })
     )

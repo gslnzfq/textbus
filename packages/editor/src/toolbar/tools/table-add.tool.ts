@@ -26,8 +26,8 @@ export function tableAddToolConfigFactory(injector: Injector): DropdownToolConfi
         placeholder: childI18n.get('columnPlaceholder')
       }),
       new FormSwitch({
-        label: childI18n.get('useTextBusStyleLabel'),
-        name: 'useTextBusStyle',
+        label: childI18n.get('useTextbusStyleLabel'),
+        name: 'useTextbusStyle',
         checked: true
       })
     ]
@@ -106,14 +106,14 @@ export function tableAddToolConfigFactory(injector: Injector): DropdownToolConfi
       const component = tableComponent.createInstance(injector, {
         slots: create(value.rows || 4, value.cols || 6),
         state: {
-          useTextBusStyle: value.useTextBusStyle,
+          useTextbusStyle: value.useTextbusStyle,
           columnCount: value.cols || 6,
           rowCount: value.rows || 4
         }
       })
 
       commander.insert(component)
-      selection.setLocation(component.slots.get(0)!, 0)
+      selection.setPosition(component.slots.get(0)!, 0)
     }
   }
 }
