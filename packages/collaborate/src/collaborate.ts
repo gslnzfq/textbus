@@ -33,7 +33,7 @@ export class Collaborate implements History {
   }
 
   private localToRemote = new LocalToRemote()
-  private remoteToLocal = new RemoteToLocal(this.translator, this.registry)
+  private remoteToLocal = new RemoteToLocal(this.yDoc, this.translator, this.selection, this.registry)
 
   private backEvent = new Subject<void>()
   private forwardEvent = new Subject<void>()
@@ -99,15 +99,17 @@ export class Collaborate implements History {
 
   private listen2() {
     const root = this.yDoc.getText('content')
-    const slot = this.rootComponentRef.component.slots.get(0)!
-    this.manager = new UndoManager(root)
+    const rootComponent = this.rootComponentRef.component!
+    this.manager = new UndoManager(root, {
+      trackedOrigins: new Set<any>([this.yDoc])
+    })
     root.observeDeep((events, transaction) => {
       if (transaction.origin === this.yDoc) {
         return
       }
       this.updateFromSelf = false
 
-      this.remoteToLocal.transform(events, slot)
+      this.remoteToLocal.transform(events, rootComponent)
       this.renderer.render()
       this.selection.restore()
       this.updateFromSelf = true
