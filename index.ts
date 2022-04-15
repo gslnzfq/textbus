@@ -2,7 +2,7 @@ import "./index.scss"
 import { createEditor } from '@textbus/editor';
 import { RootComponentRef, History } from '@textbus/core';
 import { Collaborate, CollaborateCursor, RemoteSelection } from '@textbus/collaborate';
-import { WebrtcProvider } from 'y-webrtc'
+import { WebsocketProvider } from 'y-websocket'
 import {
   Map as YMap,
   YArrayEvent,
@@ -22,8 +22,9 @@ export interface User {
 }
 
 const editor = createEditor(document.getElementById('box')!, {
-  // autoFocus: true,
+  autoFocus: true,
   // autoHeight: true,
+  minHeight: '300px',
   theme: 'light',
   placeholder: '请输入内容……',
   content: document.getElementById('template')?.innerHTML,
@@ -38,7 +39,7 @@ const editor = createEditor(document.getElementById('box')!, {
   setup(starter) {
     const collaborate = starter.get(Collaborate)
 
-    const provide = new WebrtcProvider('textbus', collaborate.yDoc)
+    const provide = new WebsocketProvider('wss://textbus.io/api', 'collab', collaborate.yDoc)
 
     const users: User[] = [{
       color: '#f00',
@@ -69,7 +70,7 @@ const editor = createEditor(document.getElementById('box')!, {
 
     collaborate.setup()
 
-    collaborate.onSelectionChange.subscribe(paths => {
+    const sub = collaborate.onSelectionChange.subscribe(paths => {
       const localSelection: RemoteSelection = {
         username: user.name,
         color: user.color,
@@ -97,12 +98,15 @@ const editor = createEditor(document.getElementById('box')!, {
         return `<span style="color: ${i.color}">${i.name}</span>`
       }).join('')
     })
+    return () => {
+      sub.unsubscribe()
+    }
   },
 })
 
 editor.onChange.subscribe(() => {
   const root = editor.injector!.get(RootComponentRef)
-  // console.log(root.component.toJSON())
+  // console.log(root.component.toString())
 })
 
 // const yDoc = new YDoc()

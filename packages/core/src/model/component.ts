@@ -4,7 +4,7 @@ import { Injector } from '@tanbo/di'
 
 import { makeError } from '../_utils/make-error'
 import { VElement } from './element'
-import { ContentType, Slot, SlotLiteral } from './slot'
+import { ContentType, Formats, Slot, SlotLiteral } from './slot'
 import { ChangeMarker } from './change-marker'
 import { Slots } from './slots'
 
@@ -103,6 +103,11 @@ export interface ComponentInstance<Methods extends ComponentMethods = ComponentM
    * 组件转为 JSON 数据的方法
    */
   toJSON(): ComponentLiteral<State>
+
+  /**
+   * 将组件转换为 string
+   */
+  toString(): string
 }
 
 /**
@@ -156,7 +161,8 @@ export interface Ref<T> {
 
 export interface InsertEventData {
   index: number
-  content: string | ComponentInstance
+  content: string | ComponentInstance,
+  formats: Formats
 }
 
 export interface EnterEventData {
@@ -304,6 +310,9 @@ export function defineComponent<Methods extends ComponentMethods,
             state: state!,
             slots: componentInstance.slots.toJSON()
           }
+        },
+        toString() {
+          return componentInstance.slots.toString()
         }
       }
       const context: ComponentContext<State> = {
@@ -408,13 +417,6 @@ export function useRef<T>() {
   return {
     current: null
   } as Ref<T>
-}
-
-/**
- * 组件多元素引用勾子
- */
-export function useRefs<T>() {
-  return [] as T[]
 }
 
 /**

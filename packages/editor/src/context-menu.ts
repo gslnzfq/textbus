@@ -12,7 +12,13 @@ import {
   Selection,
   ContextMenuConfig, ContextMenuGroup
 } from '@textbus/core'
-import { createElement, createTextNode, EDITABLE_DOCUMENT, EDITOR_CONTAINER, Parser } from '@textbus/browser'
+import {
+  createElement,
+  createTextNode,
+  EDITABLE_DOCUMENT,
+  EDITOR_CONTAINER,
+  Parser
+} from '@textbus/browser'
 import { I18n } from './i18n'
 import { Message } from './message'
 
@@ -40,7 +46,7 @@ export class ContextMenu {
       fromEvent(editorDocument, 'mousedown').subscribe(() => {
         this.hide()
       }),
-      fromEvent<MouseEvent>(editorDocument, 'contextmenu').subscribe((ev) => {
+      fromEvent<MouseEvent>(container, 'contextmenu').subscribe((ev) => {
         const nativeSelection = editorDocument.getSelection()!
         const focusNode = nativeSelection.focusNode
         const offset = nativeSelection.focusOffset
@@ -52,7 +58,6 @@ export class ContextMenu {
             }
           }
         })
-        const rect = this.container.getBoundingClientRect()
         const menus = this.makeContextmenu()
         const defaultMenus: ContextMenuConfig[] = [{
           iconClasses: ['textbus-icon-copy'],
@@ -107,7 +112,7 @@ export class ContextMenu {
         this.menu = this.show([
             ...menus,
             defaultMenus,
-          ], ev.pageX + rect.x, ev.pageY + rect.y,
+          ], ev.clientX, ev.clientY,
           this.menuSubscriptions
         )
         ev.preventDefault()
@@ -251,8 +256,9 @@ export class ContextMenu {
           )
 
           if (!item.disabled && typeof (item as ContextMenuItem).onClick === 'function') {
-            btn.addEventListener('mousedown', () => {
+            btn.addEventListener('mousedown', ev => {
               this.eventFromSelf = true
+              ev.stopPropagation()
             })
             btn.addEventListener('click', () => {
               this.hide();

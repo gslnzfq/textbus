@@ -1,4 +1,4 @@
-import { Observable, Subject, Subscription } from '@tanbo/stream'
+import { BehaviorSubject, Observable, Subject, Subscription } from '@tanbo/stream'
 import { Provider, Type } from '@tanbo/di'
 import {
   NativeRenderer,
@@ -19,14 +19,13 @@ import {
 import { Parser, OutputTranslator, ComponentResources, ComponentLoader } from './dom-support/_api'
 import { createElement } from './_utils/uikit'
 import {
-  getIframeHTML,
   BaseEditorOptions,
   Input,
   EDITABLE_DOCUMENT,
   EDITOR_CONTAINER,
   EDITOR_OPTIONS,
   DomRenderer,
-  SelectionBridge, Plugin
+  SelectionBridge, Plugin, EDITOR_MASK, RESIZE_OBSERVER, DOC_CONTAINER
 } from './core/_api'
 import { DefaultShortcut } from './preset/_api'
 
@@ -69,6 +68,8 @@ export class CoreEditor {
 
   private workbench!: HTMLElement
 
+  private initBeforeListener: Promise<unknown>[] = []
+
   constructor() {
     this.onChange = this.changeEvent.asObservable()
   }
@@ -86,85 +87,104 @@ export class CoreEditor {
     this.rootComponentLoader = rootComponentLoader
     this.options = options
     this.plugins = options.plugins || []
-    return this.createLayout(host).then(layout => {
-      this.workbench = layout.workbench
-      const staticProviders: Provider[] = [{
-        provide: EDITABLE_DOCUMENT,
-        useValue: layout.document
-      }, {
-        provide: EDITOR_OPTIONS,
-        useValue: options
-      }, {
-        provide: EDITOR_CONTAINER,
-        useValue: layout.workbench
-      }, {
-        provide: NativeRenderer,
-        useClass: DomRenderer
-      }, {
-        provide: NativeSelectionBridge,
-        useClass: SelectionBridge
-      }, {
-        provide: CoreEditor,
-        useValue: this
-      }]
-      return bootstrap({
-        components: (options.componentLoaders || []).map(i => i.component),
-        formatters: (options.formatLoaders || []).map(i => i.formatter),
-        providers: [
-          ...staticProviders,
-          ...this.defaultPlugins,
-          ...(options.providers || []),
-          DomRenderer,
-          Parser,
-          Input,
-          SelectionBridge,
-          OutputTranslator,
-        ],
-        setup(stater) {
-          options.setup?.(stater)
-        }
-      }).then(starter => {
-        const parser = starter.get(Parser)
-        const translator = starter.get(Translator)
-
-        let component: ComponentInstance
-        const content = options.content
-        if (content) {
-          if (typeof content === 'string') {
-            component = parser.parseDoc(content, rootComponentLoader)
-          } else {
-            component = translator.createComponentByFactory(content, rootComponentLoader.component)
-          }
-        } else {
-          component = rootComponentLoader.component.createInstance(starter)
-        }
-
-        starter.mount(component, layout.document.body)
-        const doc = starter.get(EDITABLE_DOCUMENT)
-        const renderer = starter.get(Renderer)
-
-        this.initDocStyleSheetsAndScripts(doc, options)
-        this.defaultPlugins.forEach(i => starter.get(i).setup(starter))
-
-        const resizeObserver = new ResizeObserver((e) => {
-          this.workbench.style.height = e[0].borderBoxSize[0].blockSize + 'px'
+    const {doc, mask, wrapper} = CoreEditor.createLayout(options.minHeight)
+    host.appendChild(wrapper)
+    this.workbench = wrapper
+    const staticProviders: Provider[] = [{
+      provide: EDITABLE_DOCUMENT,
+      useValue: document
+    }, {
+      provide: EDITOR_OPTIONS,
+      useValue: options
+    }, {
+      provide: EDITOR_CONTAINER,
+      useValue: wrapper
+    }, {
+      provide: DOC_CONTAINER,
+      useValue: doc
+    }, {
+      provide: RESIZE_OBSERVER,
+      useFactory: () => {
+        const subject = new BehaviorSubject<DOMRect>(wrapper.getBoundingClientRect())
+        const resizeObserver = new ResizeObserver(() => {
+          subject.next(wrapper.getBoundingClientRect())
         })
-        resizeObserver.observe(doc.body as any)
-        if (this.destroyed) {
-          return starter
-        }
-        this.subs.push(renderer.onViewChecked.subscribe(() => {
-          this.changeEvent.next()
+        resizeObserver.observe(wrapper)
+        this.subs.push(new Subscription(() => {
+          resizeObserver.disconnect()
         }))
-        starter.get(Input)
-        this.isReady = true
-        this.injector = starter
+        return subject
+      }
+    }, {
+      provide: EDITOR_MASK,
+      useValue: mask
+    }, {
+      provide: NativeRenderer,
+      useClass: DomRenderer
+    }, {
+      provide: NativeSelectionBridge,
+      useClass: SelectionBridge
+    }, {
+      provide: CoreEditor,
+      useValue: this
+    }]
+    return bootstrap({
+      components: (options.componentLoaders || []).map(i => i.component),
+      formatters: (options.formatLoaders || []).map(i => i.formatter),
+      providers: [
+        ...staticProviders,
+        ...this.defaultPlugins,
+        ...(options.providers || []),
+        DomRenderer,
+        Parser,
+        Input,
+        SelectionBridge,
+        OutputTranslator,
+      ],
+      setup(stater) {
+        options.setup?.(stater)
+      }
+    }).then(starter => {
+      const parser = starter.get(Parser)
+      const translator = starter.get(Translator)
 
-        if (options.autoFocus) {
-          this.focus()
+      let component: ComponentInstance
+      const content = options.content
+      if (content) {
+        if (typeof content === 'string') {
+          component = parser.parseDoc(content, rootComponentLoader)
+        } else {
+          component = translator.createComponentByFactory(content, rootComponentLoader.component)
         }
+      } else {
+        component = rootComponentLoader.component.createInstance(starter)
+      }
+
+      starter.mount(component, doc)
+
+      this.initDocStyleSheetsAndScripts(options)
+      this.defaultPlugins.forEach(i => starter.get(i).setup(starter))
+      if (this.destroyed) {
+        return starter
+      }
+      return this.initBeforeListener.reduce((p1, p2) => {
+        return p1.then(() => p2)
+      }, Promise.resolve()).then(() => {
         return starter
       })
+    }).then(starter => {
+      const renderer = starter.get(Renderer)
+      this.subs.push(renderer.onViewChecked.subscribe(() => {
+        this.changeEvent.next()
+      }))
+      starter.get(Input)
+      this.isReady = true
+      this.injector = starter
+
+      if (options.autoFocus) {
+        this.focus()
+      }
+      return starter
     })
   }
 
@@ -281,6 +301,10 @@ export class CoreEditor {
     invokeListener(component, 'onDestroy')
   }
 
+  addInitBeforeListener(promise: Promise<unknown>) {
+    this.initBeforeListener.push(promise)
+  }
+
   protected guardReady() {
     if (this.destroyed) {
       throw editorError('the editor instance is destroyed!')
@@ -290,7 +314,7 @@ export class CoreEditor {
     }
   }
 
-  private initDocStyleSheetsAndScripts(doc: Document, options: BaseEditorOptions) {
+  private initDocStyleSheetsAndScripts(options: BaseEditorOptions) {
     const links: Array<{ [key: string]: string }> = []
 
     const resources = (options.componentLoaders || []).filter(i => i.resources).map(i => i.resources!)
@@ -302,20 +326,20 @@ export class CoreEditor {
     }).join('')
 
     links.forEach(link => {
-      const linkEle = doc.createElement('link')
+      const linkEle = document.createElement('link')
       Object.assign(linkEle, link)
-      doc.head.appendChild(linkEle)
+      document.head.appendChild(linkEle)
     })
     const docStyles = CoreEditor.cssMin([componentStyles, ...(options.styleSheets || [])].join(''))
-    const styleEl = doc.createElement('style')
+    const styleEl = document.createElement('style')
     styleEl.innerHTML = CoreEditor.cssMin([...docStyles, ...(options.editingStyleSheets || [])].join(''))
-    doc.head.append(styleEl)
+    document.head.append(styleEl)
 
     resources.filter(i => i.scripts?.length).map(i => i.scripts).flat().forEach(src => {
       if (src) {
-        const script = doc.createElement('script')
+        const script = document.createElement('script')
         script.src = src
-        doc.head.appendChild(script)
+        document.head.appendChild(script)
       }
     })
   }
@@ -334,54 +358,44 @@ export class CoreEditor {
     return resources
   }
 
-  private createLayout(host: HTMLElement) {
-    const workbench = createElement('div', {
+  private static createLayout(minHeight = '100%') {
+    const id = 'textbus-' + Number((Math.random() + '').substring(2)).toString(16)
+    const doc = createElement('div', {
+      styles: {
+        cursor: 'text',
+        padding: '8px',
+        wordBreak: 'break-all',
+        minHeight,
+      },
+      props: {
+        id
+      }
+    })
+    const mask = createElement('div', {
+      styles: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        zIndex: 1,
+        pointerEvents: 'none'
+      }
+    })
+    const wrapper = createElement('div', {
       styles: {
         width: '100%',
         height: '100%',
         position: 'relative',
-        overflow: 'hidden',
-        minHeight: '100%',
-        background: '#fff'
-      }
-    })
-
-    const iframe = CoreEditor.createEditableFrame()
-    workbench.appendChild(iframe)
-
-    return new Promise<{
-      workbench: HTMLElement,
-      iframe: HTMLIFrameElement,
-      document: Document
-    }>(resolve => {
-      const html = getIframeHTML()
-      iframe.onload = () => {
-        const doc = iframe.contentDocument!
-        doc.open()
-        doc.write(html)
-        doc.close()
-        resolve({
-          workbench,
-          iframe,
-          document: doc
-        })
-      }
-      host.appendChild(workbench)
-    })
-  }
-
-  private static createEditableFrame() {
-    return createElement('iframe', {
-      attrs: {
-        scrolling: 'no'
+        background: '#fff',
       },
-      styles: {
-        border: 'none',
-        width: '100%',
-        display: 'block',
-        minHeight: '100%'
-      }
-    }) as HTMLIFrameElement
+      children: [doc, mask]
+    })
+    return {
+      wrapper,
+      doc,
+      mask
+    }
   }
 
   private static cssMin(str: string) {

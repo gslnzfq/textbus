@@ -41,11 +41,15 @@ export class Editor extends CoreEditor {
       throw editorErrorFn('selector is not an HTMLElement, or the CSS selector cannot find a DOM element in the document.')
     }
     this.onReady = this.readyEvent.asObservable()
-    this.layout = new Layout(options.autoHeight, options.minHeight)
+    this.layout = new Layout(options.autoHeight)
     if (options.theme) {
       this.layout.setTheme(options.theme)
     }
     this.host.append(this.layout.container)
+
+    if (options.autoHeight) {
+      this.layout.scroller.style.overflow = 'visible'
+    }
 
     const editorProviders: Provider[] = [{
       provide: Layout,
@@ -102,7 +106,7 @@ export class Editor extends CoreEditor {
     options.providers.push(...editorProviders)
 
     options.editingStyleSheets = options.editingStyleSheets || []
-    options.editingStyleSheets.push(`body{padding-bottom:50px}[textbus-document=true]{overflow:hidden}[textbus-document=true]::before {content: attr(data-placeholder); position: absolute; opacity: 0.6; z-index: -1;}`)
+    options.editingStyleSheets.push(`[textbus-document=true]::before {content: attr(data-placeholder); position: absolute; opacity: 0.6; z-index: -1;}`)
     this.init(this.layout.scroller, options.rootComponentLoader || rootComponentLoader, options).then(rootInjector => {
       rootInjector.get(ContextMenu)
       setTimeout(() => {

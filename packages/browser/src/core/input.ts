@@ -14,73 +14,75 @@ export const isMac = /mac os/i.test(navigator.userAgent)
  */
 @Injectable()
 export class Input {
-  private container = createElement('span', {
-    styles: {
-      width: '100%',
-      height: '100%',
-      position: 'absolute',
-      overflow: 'hidden'
-    }
-  })
-
-  private textarea = document.createElement('textarea')
+  private container = Input.createEditableFrame()
 
   private subscriptions: Subscription[] = []
+  private doc!: Document
 
   constructor(private parser: Parser,
               private keyboard: Keyboard,
               private commander: Commander,
               private selection: Selection,
               private selectionBridge: SelectionBridge) {
-    const textarea = this.textarea
 
-    Object.assign(textarea.style, {
-      width: '2000px',
-      height: '100%',
-      opacity: 0,
-      padding: 0,
-      border: 'none',
-      outline: 'none',
-      position: 'absolute',
-      fontSize: 'inherit',
-      lineHeight: 1,
-      left: 0,
-      top: isWindows ? '16px' : 0
-    })
-
-    this.container.appendChild(textarea)
     selectionBridge.caret.elementRef.append(this.container)
     let isFocus = false
+    let textarea: HTMLTextAreaElement | null = null
+
     this.subscriptions.push(
+      fromEvent(this.container, 'load').subscribe(() => {
+        const doc = this.container.contentDocument!
+        this.doc = doc
+        const contentBody = doc.body
+        const t = doc.createElement('textarea')
+        contentBody.appendChild(t)
+        textarea = t
+        Object.assign(textarea.style, {
+          width: '2000px',
+          height: '100%',
+          opacity: 0,
+          padding: 0,
+          border: 'none',
+          outline: 'none',
+          position: 'absolute',
+          fontSize: 'inherit',
+          lineHeight: 1,
+          left: 0,
+          top: isWindows ? '16px' : 0
+        })
+        fromEvent(textarea, 'blur').subscribe(() => {
+          isFocus = false
+          selectionBridge.caret.hide()
+        })
+        this.handleInput(textarea)
+        this.handleShortcut(textarea)
+        this.handleDefaultActions(textarea)
+      }),
       selectionBridge.onSelectionChange.subscribe((range) => {
         if (range) {
           if (!isFocus) {
-            this.textarea.focus()
+            textarea?.focus()
           }
           isFocus = true
+          textarea?.focus()
         } else {
-          this.textarea.blur()
+          textarea?.blur()
           isFocus = false
+          textarea?.blur()
         }
-      }),
-      fromEvent(textarea, 'blur').subscribe(() => {
-        isFocus = false
-        selectionBridge.caret.hide()
       })
     )
 
-    this.handleInput()
-    this.handleShortcut()
-    this.handleDefaultActions()
+    selectionBridge.caret.elementRef.append(this.container)
   }
 
   destroy() {
     this.subscriptions.forEach(i => i.unsubscribe())
   }
 
-  private handleDefaultActions() {
+  private handleDefaultActions(textarea) {
     this.subscriptions.push(
-      fromEvent<ClipboardEvent>(this.textarea, 'paste').subscribe(ev => {
+      fromEvent<ClipboardEvent>(textarea, 'paste').subscribe(ev => {
         const text = ev.clipboardData!.getData('Text')
 
         const files = Array.from(ev.clipboardData!.files)
@@ -105,10 +107,10 @@ export class Input {
           return
         }
 
-        const div = document.createElement('div')
+        const div = this.doc.createElement('div')
         div.style.cssText = 'width:10px; height:10px; overflow: hidden; position: fixed; left: -9999px; top: -9999px; opacity:0'
         div.contentEditable = 'true'
-        document.body.appendChild(div)
+        this.doc.body.appendChild(div)
         div.focus()
         setTimeout(() => {
           let html = div.innerHTML
@@ -123,7 +125,7 @@ export class Input {
           }
           this.handlePaste(html, text)
 
-          document.body.removeChild(div)
+          this.doc.body.removeChild(div)
         })
       })
     )
@@ -139,16 +141,16 @@ export class Input {
     this.commander.paste(slot, text)
   }
 
-  private handleShortcut() {
+  private handleShortcut(textarea: HTMLTextAreaElement) {
     let isWriting = false
     this.subscriptions.push(
-      fromEvent(this.textarea, 'compositionstart').subscribe(() => {
+      fromEvent(textarea, 'compositionstart').subscribe(() => {
         isWriting = true
       }),
-      fromEvent(this.textarea, 'compositionend').subscribe(() => {
+      fromEvent(textarea, 'compositionend').subscribe(() => {
         isWriting = false
       }),
-      fromEvent<KeyboardEvent>(this.textarea, 'keydown').pipe(filter(() => {
+      fromEvent<KeyboardEvent>(textarea, 'keydown').pipe(filter(() => {
         return !isWriting // || !this.textarea.value
       })).subscribe(ev => {
         const is = this.keyboard.execShortcut({
@@ -164,8 +166,7 @@ export class Input {
     )
   }
 
-  private handleInput() {
-    const textarea = this.textarea
+  private handleInput(textarea: HTMLTextAreaElement) {
     this.subscriptions.push(
       merge(
         fromEvent<InputEvent>(textarea, 'beforeinput').pipe(
@@ -184,9 +185,23 @@ export class Input {
         }))
       ).subscribe(text => {
         if (text) {
-          this.commander.insert(text)
+          this.commander.write(text)
         }
       })
     )
+  }
+
+  private static createEditableFrame() {
+    return createElement('iframe', {
+      attrs: {
+        scrolling: 'no'
+      },
+      styles: {
+        border: 'none',
+        width: '100%',
+        display: 'block',
+        height: '100%'
+      }
+    }) as HTMLIFrameElement
   }
 }

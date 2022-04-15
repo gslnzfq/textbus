@@ -1,12 +1,11 @@
-import { Injector, NullInjector, Provider, ReflectiveInjector, Type } from '@tanbo/di'
-import { Observable, Subject } from '@tanbo/stream'
+import { Injector, NullInjector, Provider, ReflectiveInjector } from '@tanbo/di'
+import { Observable, Subject, Subscription } from '@tanbo/stream'
 
-import { ComponentInstance, Formatter, Component } from './model/_api'
+import { ComponentInstance, Formatter, Component, invokeListener } from './model/_api'
 import {
   NativeNode,
   History,
   RootComponentRef,
-  LifeCycle,
   Renderer,
   COMPONENT_LIST,
   FORMATTER_LIST,
@@ -39,7 +38,11 @@ export interface TextbusConfig {
   /** 使用 contentEditable 作为编辑器控制可编辑范围 */
   useContentEditable?: boolean
 
-  setup?(starter: Starter): void
+  /**
+   * 初始化之前的设置，返回一个函数，当 Textbus 销毁时调用
+   * @param starter
+   */
+  setup?(starter: Starter): (() => unknown) | void
 }
 
 /**
@@ -48,6 +51,11 @@ export interface TextbusConfig {
 export class Starter extends ReflectiveInjector {
   onReady: Observable<void>
   private readyEvent = new Subject<void>()
+
+  private instanceList = new Set<ComponentInstance>()
+  private subs: Subscription[] = []
+
+  private beforeDestroy: (() => unknown) | void
 
   constructor(public config: TextbusConfig) {
     super(new NullInjector(), [
@@ -73,7 +81,6 @@ export class Starter extends ReflectiveInjector {
       Commander,
       Registry,
       Keyboard,
-      LifeCycle,
       OutputRenderer,
       Query,
       Renderer,
@@ -101,7 +108,7 @@ export class Starter extends ReflectiveInjector {
       }
     ])
     this.onReady = this.readyEvent.asObservable()
-    config.setup?.(this)
+    this.beforeDestroy = config.setup?.(this)
   }
 
   /**
@@ -114,9 +121,31 @@ export class Starter extends ReflectiveInjector {
 
     rootComponentRef.component = rootComponent
     rootComponentRef.host = host
+    const renderer = this.get(Renderer)
     this.get(History).listen()
-    this.get(LifeCycle).init()
-    this.get(Renderer).render()
+    this.subs.push(
+      rootComponent.changeMarker.onChildComponentRemoved.subscribe(instance => {
+        this.instanceList.add(instance)
+      }),
+      renderer.onViewChecked.subscribe(() => {
+        this.instanceList.forEach(instance => {
+          let comp = instance
+          while (comp) {
+            const parent = comp.parent
+            if (parent) {
+              comp = parent.parent as ComponentInstance
+            } else {
+              break
+            }
+          }
+          if (comp !== rootComponent) {
+            Starter.invokeChildComponentDestroyHook(comp)
+          }
+        })
+        this.instanceList.clear()
+      })
+    )
+    renderer.render()
     this.readyEvent.next()
     return this
   }
@@ -125,8 +154,24 @@ export class Starter extends ReflectiveInjector {
    * 销毁 Textbus 实例
    */
   destroy() {
-    [History, LifeCycle].forEach(i => {
-      this.get(i as Type<{ destroy(): void }>).destroy()
+    const beforeDestroy = this.beforeDestroy
+    if (typeof beforeDestroy === 'function') {
+      beforeDestroy()
+    }
+    [History].forEach(i => {
+      this.get(i).destroy()
     })
+    this.subs.forEach(i => i.unsubscribe())
+  }
+
+  private static invokeChildComponentDestroyHook(parent: ComponentInstance) {
+    parent.slots.toArray().forEach(slot => {
+      slot.sliceContent().forEach(i => {
+        if (typeof i !== 'string') {
+          Starter.invokeChildComponentDestroyHook(i)
+        }
+      })
+    })
+    invokeListener(parent, 'onDestroy')
   }
 }

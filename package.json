@@ -69,13 +69,14 @@
     "@tanbo/color": "^0.0.3",
     "@tanbo/color-picker": "^0.1.2",
     "@tanbo/css-themes": "^0.0.1",
-    "@tanbo/di": "^1.0.5",
-    "@tanbo/stream": "^0.0.12",
+    "@tanbo/di": "^1.0.7",
+    "@tanbo/stream": "^1.0.0",
     "immer": "^9.0.12",
-    "reflect-metadata": "^0.1.13",
     "prismjs": "^1.23.0",
-    "yjs": "^13.5.27",
-    "y-webrtc": "^10.2.2"
+    "reflect-metadata": "^0.1.13",
+    "y-webrtc": "^10.2.2",
+    "y-websocket": "^1.4.0",
+    "yjs": "^13.5.27"
   },
   "repository": {
     "type": "git",

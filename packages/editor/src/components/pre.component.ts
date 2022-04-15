@@ -38,6 +38,7 @@ import 'prismjs/components/prism-jsx'
 import 'prismjs/components/prism-tsx'
 import { paragraphComponent } from './paragraph.component'
 import { I18n } from '../i18n'
+import { map } from '@tanbo/stream'
 
 export const codeStyles = {
   keyword: 'keyword',
@@ -114,7 +115,7 @@ export const languageList: Array<{ label: string, value: string }> = [{
 
 export interface PreComponentState {
   lang: string
-  code: string
+  theme?: string
 }
 
 export const codeStyleFormatter: Formatter = {
@@ -284,7 +285,7 @@ function reformat(
   }
 }
 
-function createCodeSlot() {
+export function createCodeSlot() {
   const slot = new Slot([
     ContentType.Text
   ], {
@@ -303,6 +304,20 @@ function overrideSlot(slot: Slot) {
     }
     return retain.call(slot, index, formatter, value)
   } as any
+
+  slot.changeMarker.onChange = slot.changeMarker.onChange.pipe(map(operation => {
+    const apply = operation.apply.filter(action => {
+      return !(action.type === 'retain' && action.formats)
+    })
+    const unApply = operation.apply.filter(action => {
+      return !(action.type === 'retain' && action.formats)
+    })
+    return {
+      path: operation.path,
+      apply,
+      unApply
+    }
+  }))
   return slot
 }
 
@@ -313,7 +328,7 @@ export const preComponent = defineComponent({
     slots: [],
     state: {
       lang: '',
-      code: ''
+      theme: ''
     }
   }) {
     let languageGrammar = getLanguageGrammar(data.state!.lang)
@@ -324,18 +339,14 @@ export const preComponent = defineComponent({
     self.toJSON = function () {
       return {
         name: self.name,
-        state: {
-          lang: data.state?.lang,
-          code: slots.toArray().map(i => {
-            return i.isEmpty ? '' : i.sliceContent().join('')
-          }).join('\n')
-        },
-        slots: []
+        state: data.state,
+        slots: slots.toJSON()
       }
     }
 
     const stateController = useState({
-      lang: data.state!.lang
+      lang: data.state!.lang,
+      theme: data.state!.theme
     })
     const injector = useContext()
 
@@ -343,11 +354,12 @@ export const preComponent = defineComponent({
 
     const selection = injector.get(Selection)
 
-    stateController.onChange.subscribe(newLang => {
-      data.state!.lang = newLang.lang
-      languageGrammar = getLanguageGrammar(newLang.lang);
+    stateController.onChange.subscribe(newState => {
+      data.state!.lang = newState.lang
+      data.state!.theme = newState.theme
+      languageGrammar = getLanguageGrammar(newState.lang);
 
-      [blockCommentStartString, blockCommentEndString] = getLanguageBlockCommentStart(newLang.lang)
+      [blockCommentStartString, blockCommentEndString] = getLanguageBlockCommentStart(newState.lang)
       isStop = true
       slots.toArray().forEach(i => {
         i.state.blockCommentStart = false
@@ -364,7 +376,7 @@ export const preComponent = defineComponent({
       isStop = false
     })
 
-    const slotList = formatCodeLines(data.state!.code.split('\n'), false, blockCommentStartString, blockCommentEndString, languageGrammar)
+    const slotList = formatCodeLines((data.slots || []).map(i => i.toString()), false, blockCommentStartString, blockCommentEndString, languageGrammar)
     const slots = useSlots(slotList)
 
     let isStop = false
@@ -428,6 +440,24 @@ export const preComponent = defineComponent({
             }
           }
         })
+      }, {
+        // iconClasses:
+        label: i18n.get('components.preComponent.changeTheme'),
+        submenu: [{
+          label: 'Light',
+          onClick() {
+            stateController.update(draft => {
+              draft.theme = 'light'
+            })
+          }
+        }, {
+          label: 'Dark',
+          onClick() {
+            stateController.update(draft => {
+              draft.theme = 'dark'
+            })
+          }
+        }]
       }]
     })
 
@@ -453,7 +483,9 @@ export const preComponent = defineComponent({
 
     return {
       render(isOutputMode: boolean, slotRender: SlotRender): VElement {
-        const block = new VElement('pre', null, [
+        const block = new VElement('pre', {
+          theme: data.state!.theme || null
+        }, [
           new VElement('div', {
             class: 'tb-code-line-number-bg',
             style: {
@@ -544,8 +576,13 @@ export const preComponentLoader: ComponentLoader = {
     return preComponent.createInstance(injector, {
       state: {
         lang: el.getAttribute('lang') || '',
-        code
-      }
+        theme: el.getAttribute('theme') || ''
+      },
+      slots: code.split('\n').map(i => {
+        const slot = createCodeSlot()
+        slot.insert(i)
+        return slot
+      })
     })
   },
   component: preComponent
